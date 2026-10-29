@@ -69,6 +69,9 @@ export function createApiHandler(options = {}) {
   const liveModel = env.GEMINI_LIVE_MODEL || LIVE_MODEL;
   const envGemini = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
   const envOpenAI = env.AI_API_KEY || env.OPENAI_API_KEY;
+  const deployment = options.deployment || 'node';
+  const liveSupported = options.liveAvailable !== false;
+  const sessionMode = options.sessionMode || store.mode || 'memory';
   function rateLimit(map, ip, max) {
     const now = Date.now();
     for (const [key, value] of map) if (value.reset < now) map.delete(key);
@@ -84,7 +87,15 @@ export function createApiHandler(options = {}) {
       mode: provider === 'demo' ? 'demo' : 'live',
       provider,
       geminiConnected: provider === 'gemini',
-      liveAvailable: provider === 'gemini',
+      liveAvailable: provider === 'gemini' && liveSupported,
+      deployment,
+      sessionMode,
+      ...(provider === 'gemini' && !liveSupported
+        ? {
+            liveUnavailableReason:
+              'Live voice/video calls need the Yaari Node WebSocket server. This Vercel deployment supports Gemini chat and photo sharing.',
+          }
+        : {}),
       source: session ? 'session' : provider === 'demo' ? 'none' : 'server',
       chatModel:
         provider === 'gemini'

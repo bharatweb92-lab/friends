@@ -226,9 +226,12 @@ export default function CallsPage({ calls, status, onCall, onSettings, onClear }
                   : 'One step before your first call.'}
               </h3>
               <p>
-                {status.geminiConnected
+                {status.geminiConnected && status.liveAvailable
                   ? 'Gemini Live powers your calls. Provider usage charges may apply.'
-                  : 'Connect a Gemini API key with Live API access to start voice and video calls.'}
+                  : status.geminiConnected
+                    ? status.liveUnavailableReason ||
+                      'This deployment supports Gemini chat, but live calls need the Yaari Node WebSocket server.'
+                    : 'Connect a Gemini API key with Live API access to start voice and video calls.'}
               </p>
               <button className="text-button" onClick={onSettings}>
                 {status.geminiConnected ? 'Call settings' : 'Open Settings'}

@@ -187,3 +187,19 @@ The browser smoke test covers desktop/mobile layouts, sending, persistence, sear
 - `public/pcm-capture.js` — 16 kHz PCM16 AudioWorklet
 - `public/avatars/` — generated, optimized illustrations
 - `tests/` — API/unit and browser checks
+
+## Deploy to Vercel (chat + photo sharing)
+
+Yaari can run on Vercel as a Vite frontend plus a serverless Node API. Gemini chat and photo sharing work there. Live voice/video calls do **not** run on Vercel because they need the long-running WebSocket server in `server/live.mjs`; the deployed UI reports calls as unavailable instead of pretending they can connect.
+
+1. Push this repository to GitHub and import it into Vercel, or use the Vercel CLI/connector.
+2. Use the **Vite** framework preset, build command `npm run build`, and output directory `dist`. The included `vercel.json` already sets these and configures `api/[...path].mjs`.
+3. Add a server-only environment variable named `YAARI_SESSION_SECRET` in Vercel for Production and Preview. Generate a value with:
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+   ```
+   Do not prefix it with `VITE_`, do not commit it, and do not paste it into chat. Rotating it invalidates existing encrypted browser sessions.
+4. Deploy, open the Vercel URL, go to **Settings**, and connect your Gemini API key there. The key is validated by the serverless API and returned to the browser only as an encrypted, expiring session token. Vercel does not keep the key in server memory between requests. Disconnect removes the token from that browser tab; rotate the key in Google AI Studio for immediate global revocation.
+5. Verify `https://<your-deployment>/api/status` returns JSON with `"deployment":"vercel"` and `"liveAvailable":false`.
+
+For live voice/video calls, deploy the full Node server (`npm run build && npm start`) on a host that supports long-lived WebSocket connections, and use that URL instead.

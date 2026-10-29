@@ -84,7 +84,9 @@ export function useGemini() {
       );
       if (
         typeof data.token !== 'string' ||
-        !/^[A-Za-z0-9_-]{43}$/.test(data.token) ||
+        !/^(?:[A-Za-z0-9_-]{43}|yaari1\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{20,800})$/.test(
+          data.token,
+        ) ||
         data.geminiConnected !== true ||
         data.provider !== 'gemini'
       )

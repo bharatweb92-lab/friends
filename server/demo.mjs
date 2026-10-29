@@ -1,8 +1,6 @@
-import { readFileSync } from 'node:fs';
+import friendData from '../data/friends.json' with { type: 'json' };
 
-export const friends = JSON.parse(
-  readFileSync(new URL('../data/friends.json', import.meta.url), 'utf8'),
-);
+export const friends = friendData;
 
 function rememberedName(messages) {
   for (const message of messages) {

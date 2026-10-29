@@ -152,8 +152,10 @@ export default function SettingsPage({
                   </span>
                   <h3>You’re connected to Gemini.</h3>
                   <p>
-                    Chat is connected. Voice/video calls also need Live API access and may incur
-                    usage charges.
+                    {status.liveAvailable
+                      ? 'Chat is connected. Voice/video calls also need Live API access and may incur usage charges.'
+                      : status.liveUnavailableReason ||
+                        'Chat is connected. Live calls are not available on this deployment.'}
                   </p>
                   <div className="model-details">
                     <span>
@@ -165,7 +167,7 @@ export default function SettingsPage({
                   </div>
                   <p className="session-expiry">
                     {status.source === 'session'
-                      ? `This browser’s key session expires ${new Date(status.expiresAt!).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}. Reconnect after expiry or a server restart.`
+                      ? `This browser’s key session expires ${new Date(status.expiresAt!).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}. ${status.sessionMode === 'encrypted' ? 'Reconnect after expiry. Disconnect removes this browser’s encrypted token; rotate the key in Google AI Studio for immediate global revocation.' : 'Reconnect after expiry or a server restart.'}`
                       : 'Using the server’s configured Gemini key.'}
                   </p>
                   {status.source === 'session' && (
@@ -174,7 +176,11 @@ export default function SettingsPage({
                       disabled={busy}
                       onClick={async () => {
                         if (await connection.disconnect())
-                          onToast('Gemini disconnected. The key was removed from server memory.');
+                          onToast(
+                            status.sessionMode === 'encrypted'
+                              ? 'Gemini disconnected. This browser’s encrypted session token was removed.'
+                              : 'Gemini disconnected. The key was removed from server memory.',
+                          );
                       }}
                     >
                       {busy ? <LoaderCircle size={16} className="spin" /> : <Unplug size={16} />}
@@ -187,7 +193,9 @@ export default function SettingsPage({
                   <div className="connection-intro">
                     <KeyRound size={19} />
                     <p>
-                      Bring your own Gemini API key to unlock chat, voice calls, and camera sharing.
+                      {status.deployment === 'vercel'
+                        ? 'Bring your own Gemini API key to unlock chat and photo sharing on this Vercel deployment.'
+                        : 'Bring your own Gemini API key to unlock chat, voice calls, and camera sharing.'}
                     </p>
                   </div>
                   <label className="field-label" htmlFor="gemini-key">
@@ -247,10 +255,9 @@ export default function SettingsPage({
               <div className="key-security-note">
                 <LockKeyhole size={16} />
                 <p>
-                  Your key is sent to this app’s server, not saved in browser storage. A random
-                  session ID keeps your browser connected; the key stays in server memory and is
-                  removed on disconnect or restart. Chat text, photos you send, and call media are
-                  shared with Gemini. Google’s usage charges and privacy terms apply.
+                  {status.deployment === 'vercel'
+                    ? 'Your key is sent to this app’s server and returned only as an encrypted, expiring session token stored in this browser tab. Vercel does not keep the key in server memory between requests. Disconnect removes the token from this tab; rotate the key in Google AI Studio for immediate global revocation. Chat text and photos you send are shared with Gemini. Google’s usage charges and privacy terms apply.'
+                    : 'Your key is sent to this app’s server, not saved in browser storage. A random session ID keeps your browser connected; the key stays in server memory and is removed on disconnect or restart. Chat text, photos you send, and call media are shared with Gemini. Google’s usage charges and privacy terms apply.'}
                 </p>
               </div>
             </section>

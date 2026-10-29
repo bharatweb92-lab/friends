@@ -5,6 +5,7 @@ export type CredentialStore = {
   delete(token: string): void;
   onRevoke(token: string, callback: () => void): () => void;
   readonly size: number;
+  mode?: 'memory' | 'encrypted';
 };
 export function createCredentialStore(options?: {
   ttl?: number;
@@ -13,3 +14,7 @@ export function createCredentialStore(options?: {
 export function getSharedStore(): CredentialStore;
 export function bearerToken(req: IncomingMessage): string;
 export function sameOrigin(req: IncomingMessage): boolean;
+export function createEncryptedCredentialStore(options: {
+  secret: string;
+  ttl?: number;
+}): CredentialStore;

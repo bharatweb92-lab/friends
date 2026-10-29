@@ -67,5 +67,8 @@ export type ApiStatus = {
   chatModel?: string;
   liveModel?: string;
   expiresAt?: number;
+  deployment?: string;
+  sessionMode?: 'memory' | 'encrypted';
+  liveUnavailableReason?: string;
 };
 export type Section = 'home' | 'chats' | 'calls' | 'settings';

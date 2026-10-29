@@ -186,7 +186,7 @@ export default function CallExperience({
               </small>
             </span>
           </div>
-          {status.geminiConnected ? (
+          {status.geminiConnected && status.liveAvailable ? (
             <>
               <div className="precall-consent">
                 <ShieldCheck size={20} />
@@ -215,6 +215,21 @@ export default function CallExperience({
                 <Check size={12} />
                 You can mute, hide your camera, or hang up anytime.
               </span>
+            </>
+          ) : status.geminiConnected ? (
+            <>
+              <div className="precall-setup-note">
+                <Sparkles size={21} />
+                <p>
+                  {status.liveUnavailableReason ||
+                    'Live calls are not available on this deployment. Gemini chat is still connected.'}
+                </p>
+              </div>
+              <button className="primary-button full-width" onClick={onSettings}>
+                View connection settings
+                <ArrowRight size={16} />
+              </button>
+              <span className="precall-limit">No microphone or camera access was requested.</span>
             </>
           ) : (
             <>
