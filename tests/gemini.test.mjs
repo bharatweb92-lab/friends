@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createApiHandler } from '../server/api.mjs';
 import { createCredentialStore } from '../server/credentials.mjs';
+import { streamGeminiText } from '../server/gemini.mjs';
 
 async function fixture(t, options = {}) {
   const store = createCredentialStore();
@@ -123,7 +124,7 @@ test('Gemini chat sends persona, language context, and the latest photo', async 
   assert.equal(payload.contents[0].parts[1].inlineData.mimeType, 'image/webp');
   assert.equal(payload.contents[0].role, 'user');
   assert.equal(payload.generationConfig.thinkingConfig.thinkingLevel, 'LOW');
-  assert.equal(payload.generationConfig.maxOutputTokens, 2048);
+  assert.equal(payload.generationConfig.maxOutputTokens, 1024);
 });
 test('disconnect removes the key and immediately restores demo status', async (t) => {
   const { url, store } = await fixture(t, {
@@ -245,4 +246,107 @@ test('a key that can read metadata but cannot generate is not marked connected',
   assert.equal(response.status, 401);
   assert.equal(store.size, 0);
   assert.match((await response.json()).error, /rejected/);
+});
+
+function sse(chunks) {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        for (const chunk of chunks)
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+        controller.close();
+      },
+    }),
+    { headers: { 'Content-Type': 'text/event-stream' } },
+  );
+}
+
+test('Gemini chat streams visible deltas and disables automatic continuation hops', async (t) => {
+  let request;
+  const { url } = await fixture(t, {
+    env: { GEMINI_API_KEY: key },
+    fetch: async (url, options) => {
+      request = { url: String(url), options };
+      return sse([
+        { candidates: [{ content: { parts: [{ text: 'private reasoning', thought: true }] } }] },
+        { candidates: [{ content: { parts: [{ text: 'Hi ' }] } }] },
+        { candidates: [{ content: { parts: [{ text: 'there.' }] }, finishReason: 'STOP' }] },
+      ]);
+    },
+  });
+  const response = await fetch(`${url}/chat`, {
+    method: 'POST',
+    headers: { Accept: 'application/x-ndjson' },
+    body: JSON.stringify(message),
+  });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type'), /application\/x-ndjson/);
+  assert.match(request.url, /:streamGenerateContent/);
+  const payload = JSON.parse(request.options.body);
+  assert.equal(payload.generationConfig.thinkingConfig.thinkingLevel, 'LOW');
+  assert.equal(payload.generationConfig.maxOutputTokens, 1024);
+  const events = (await response.text())
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.equal(events[0].type, 'start');
+  assert.deepEqual(
+    events.filter((e) => e.type === 'delta').map((e) => e.text),
+    ['Hi ', 'there.'],
+  );
+  assert.equal(events.at(-1).type, 'done');
+  assert.equal(events.at(-1).reply, 'Hi there.');
+  assert.ok(!JSON.stringify(events).includes('private reasoning'));
+});
+
+test('a stalled Gemini stream times out after preserving the first visible delta', async () => {
+  const encoder = new TextEncoder();
+  const deltas = [];
+  const stalled = new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Hi ' }] } }] })}\n\n`,
+          ),
+        );
+      },
+      cancel() {},
+    }),
+    { headers: { 'Content-Type': 'text/event-stream' } },
+  );
+  await assert.rejects(
+    streamGeminiText({
+      apiKey: key,
+      model: 'gemini-3.8-flash',
+      contents: 'hi',
+      fetcher: async () => stalled,
+      onDelta: (delta) => deltas.push(delta),
+      idleTimeoutMs: 30,
+      deadlineMs: 250,
+    }),
+    (error) => error.code === 'GEMINI_TIMEOUT',
+  );
+  assert.deepEqual(deltas, ['Hi ']);
+});
+
+test('streaming quota errors are sent as safe NDJSON error events', async (t) => {
+  const { url } = await fixture(t, {
+    env: { GEMINI_API_KEY: key },
+    fetch: async () => new Response(`error ${key}`, { status: 429 }),
+  });
+  const response = await fetch(`${url}/chat`, {
+    method: 'POST',
+    headers: { Accept: 'application/x-ndjson' },
+    body: JSON.stringify(message),
+  });
+  const events = (await response.text())
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.equal(events[0].type, 'start');
+  assert.equal(events.at(-1).type, 'error');
+  assert.equal(events.at(-1).code, 'GEMINI_QUOTA');
+  assert.ok(!JSON.stringify(events).includes(key));
 });

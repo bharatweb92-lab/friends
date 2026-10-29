@@ -44,6 +44,12 @@ test('Vercel adapter reports chat-only hosting and keeps key sessions across ins
     const target = String(url);
     if (!target.startsWith('https://generativelanguage.googleapis.com/'))
       return originalFetch(url, init);
+    if (target.includes(':streamGenerateContent')) {
+      return new Response(
+        `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Streamed from Vercel' }] } }] })}\n\n`,
+        { headers: { 'Content-Type': 'text/event-stream' } },
+      );
+    }
     if (target.includes(':generateContent')) {
       assert.equal(
         new Headers(init.headers).get('x-goog-api-key'),
@@ -87,6 +93,22 @@ test('Vercel adapter reports chat-only hosting and keeps key sessions across ins
     );
     assert.equal(chat.status, 200);
     assert.equal((await chat.json()).reply, 'Hello from Vercel');
+    const streamed = await fetch(`${two}/api/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/x-ndjson',
+        Authorization: `Bearer ${session.token}`,
+      },
+      body: JSON.stringify({ friendId: 'aarav', messages: [{ role: 'user', text: 'Hi' }] }),
+    });
+    assert.equal(streamed.status, 200);
+    const events = (await streamed.text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    assert.equal(events.at(-1).type, 'done');
+    assert.equal(events.at(-1).reply, 'Streamed from Vercel');
     const disconnected = await post(
       `${two}/api/gemini/disconnect`,
       {},

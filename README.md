@@ -56,7 +56,7 @@ Restart the server after changing `.env`. `GOOGLE_API_KEY` is also accepted. Nev
 - The browser receives a random, opaque session token stored in `sessionStorage`; the key itself is not stored in browser storage or returned by the API.
 - Sessions expire after 8 hours, are removed on disconnect or server restart, and are capped per process.
 - Disconnecting revokes the session and stops any active call using it.
-- Chat sends the persona prompt, preferred display name, up to 24 recent non-sample messages, and the latest supported photo to Gemini.
+- Chat sends the persona prompt, preferred display name, up to 24 recent non-sample messages, and the latest supported photo to Gemini. Replies stream into the chat as they arrive; automatic multi-request continuation is disabled so one message stays one bounded, billable turn.
 - Google's retention, billing, and privacy terms apply. Set provider spend limits before regular use.
 
 Connecting a key sends a tiny test generation to prove the key can actually chat; this can use a small amount of Gemini quota. Voice/video calling additionally requires that the key/project have access to the configured Gemini Live model and quota.
@@ -67,6 +67,7 @@ Settings expects the Yaari **Node API** to answer `/api/gemini/connect` with JSO
 
 - **HTTP 404/405 or “web page instead of JSON”** usually means only the frontend was deployed. Run `npm run dev` locally, or deploy the full Node server (`npm run build && npm start`) so `/api` and `/api/live` are served by Yaari.
 - **HTTP 502/503/504** usually means the preview proxy or server could not complete the request. Check that the Node process is running and reachable.
+- **Timeout / interrupted reply:** short replies use low thinking and stream visible text. The server stops a stalled stream after 25 seconds without a new chunk (55 seconds total) and keeps your sent message so **Try again** is safe. Safe diagnostics record only an error code, elapsed time, and chunk count — never the key or message text.
 - **“Couldn’t reach Gemini”** means the Yaari server itself cannot make outbound HTTPS requests to `generativelanguage.googleapis.com`. Restricted sandboxes may block this even when the UI loads correctly; use a local machine or a host with outbound Gemini access.
 - A key is only marked connected after a real test generation succeeds and the server returns a valid session token.
 

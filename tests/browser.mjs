@@ -158,6 +158,29 @@ try {
       .locator('.voice-note audio')
       .evaluate((audio) => audio.src.startsWith('data:audio/')),
   );
+  // Streamed Gemini replies are assembled into one saved message.
+  await page.route(
+    '**/api/chat',
+    (route) =>
+      route.fulfill({
+        contentType: 'application/x-ndjson',
+        body:
+          '{"type":"start"}\n' +
+          '{"type":"delta","text":"Streaming "}\n' +
+          '{"type":"delta","text":"hello."}\n' +
+          '{"type":"done","reply":"Streaming hello."}\n',
+      }),
+    { times: 1 },
+  );
+  await page
+    .getByRole('textbox', { name: 'Message Aarav', exact: true })
+    .fill('A streamed test message');
+  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await page
+    .getByRole('log', { name: 'Chat messages' })
+    .getByText('Streaming hello.', { exact: true })
+    .waitFor();
+  assert.equal(await page.locator('.streaming-message').count(), 0);
   // Failed responses preserve the user's message and offer a working retry.
   await page.route('**/api/chat', (route) =>
     route.fulfill({

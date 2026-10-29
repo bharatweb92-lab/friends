@@ -72,7 +72,7 @@ export default function ChatScreen({
   filter: ChatFilter;
   setFilter: (filter: ChatFilter) => void;
 }) {
-  const { state, activeId, pending, errors, apiStatus } = chat;
+  const { state, activeId, pending, errors, streaming, interrupted, apiStatus } = chat;
   const friend = FRIENDS.find((f) => f.id === activeId)!;
   const messages = state.conversations[activeId];
   const [query, setQuery] = useState('');
@@ -94,6 +94,7 @@ export default function ChatScreen({
     ? messages.filter((m) => m.text.toLowerCase().includes(chatSearch.trim().toLowerCase()))
     : [];
   const hasRealMessages = messages.some((m) => !m.sample);
+  const draft = streaming[activeId] || '';
 
   useEffect(() => {
     if (chat.storageError)
@@ -123,7 +124,10 @@ export default function ChatScreen({
     const element = scrollRef.current;
     if (
       element &&
-      (changedFriend || messages.length > previousLength.current || !hasRealMessages)
+      (changedFriend ||
+        messages.length > previousLength.current ||
+        !hasRealMessages ||
+        draft.length > 0)
     ) {
       element.scrollTo({
         top: element.scrollHeight,
@@ -138,7 +142,7 @@ export default function ChatScreen({
     }
     previousActive.current = activeId;
     previousLength.current = messages.length;
-  }, [activeId, messages.length, pending[activeId], hasRealMessages]);
+  }, [activeId, messages.length, pending[activeId], hasRealMessages, draft]);
   useEffect(() => {
     if (chatSearchOpen) chatSearchRef.current?.focus();
   }, [chatSearchOpen]);
@@ -436,8 +440,25 @@ export default function ChatScreen({
                   onSpeak={() => speak(message)}
                 />
               ))}
+              {draft && (pending[activeId] || interrupted[activeId]) && (
+                <MessageBubble
+                  message={{
+                    id: `draft-${activeId}`,
+                    role: 'assistant',
+                    text: draft,
+                    createdAt: Date.now(),
+                  }}
+                  streaming={Boolean(pending[activeId])}
+                  interrupted={Boolean(interrupted[activeId])}
+                  onReact={() => {}}
+                  onImage={() => {}}
+                  onToast={() => {}}
+                  speakingId={null}
+                  onSpeak={() => {}}
+                />
+              )}
             </div>
-            {pending[activeId] && <TypingStatus name={friend.name} />}
+            {pending[activeId] && !draft && <TypingStatus name={friend.name} />}
             {errors[activeId] && (
               <div className="chat-error" role="alert">
                 <AlertCircle size={17} />

@@ -22,6 +22,8 @@ type Props = {
   highlight?: string;
   speakingId: string | null;
   onSpeak: () => void;
+  streaming?: boolean;
+  interrupted?: boolean;
 };
 const reactions = ['❤️', '😂', '👍', '🥹', '🙌'];
 export default function MessageBubble({
@@ -32,6 +34,8 @@ export default function MessageBubble({
   highlight = '',
   speakingId,
   onSpeak,
+  streaming = false,
+  interrupted = false,
 }: Props) {
   const [menu, setMenu] = useState<'reactions' | 'actions' | null>(null);
   const own = message.role === 'user';
@@ -57,6 +61,24 @@ export default function MessageBubble({
     }
     setMenu(null);
   };
+  if (streaming || interrupted) {
+    return (
+      <article
+        className="message-row incoming streaming-message"
+        data-message-id={message.id}
+        aria-label={interrupted ? 'Interrupted friend reply' : 'Friend reply arriving'}
+        aria-live="off"
+      >
+        <div className="message-bubble">
+          <p className="message-text">
+            {message.text}
+            {streaming && <span className="stream-caret" aria-hidden="true" />}
+          </p>
+          <small className="stream-label">{interrupted ? 'Reply interrupted' : 'Writing…'}</small>
+        </div>
+      </article>
+    );
+  }
   return (
     <article
       className={`message-row ${own ? 'outgoing' : 'incoming'} ${menu ? 'menu-open' : ''}`}

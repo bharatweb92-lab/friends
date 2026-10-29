@@ -11,13 +11,17 @@ import type {
   CallRecord,
 } from './types';
 import { authHeaders } from './connection';
-import { ApiError, readApiJson } from './apiResponse';
+import { ApiError } from './apiResponse';
+import { readChatResponse } from './chatStream';
 
 export function useYaari(apiStatus: ApiStatus, refreshStatus: () => Promise<void>) {
   const [state, setState] = useState<ChatState>(loadState);
   const [activeId, setActiveId] = useState<FriendId>('aarav');
   const [pending, setPending] = useState<Partial<Record<FriendId, boolean>>>({});
   const [errors, setErrors] = useState<Partial<Record<FriendId, string>>>({});
+  const [streaming, setStreaming] = useState<Partial<Record<FriendId, string>>>({});
+  const [interrupted, setInterrupted] = useState<Partial<Record<FriendId, boolean>>>({});
+  const streamingRef = useRef<Partial<Record<FriendId, string>>>({});
 
   const [storageError, setStorageError] = useState(false);
   const activeRef = useRef(activeId);
@@ -49,6 +53,9 @@ export function useYaari(apiStatus: ApiStatus, refreshStatus: () => Promise<void
       pendingRef.current.add(id);
       setPending((p) => ({ ...p, [id]: true }));
       setErrors((e) => ({ ...e, [id]: '' }));
+      streamingRef.current[id] = '';
+      setStreaming((v) => ({ ...v, [id]: '' }));
+      setInterrupted((v) => ({ ...v, [id]: false }));
       const messages = stateRef.current.conversations[id]
         .filter((m) => !m.sample)
         .slice(-24)
@@ -76,7 +83,7 @@ export function useYaari(apiStatus: ApiStatus, refreshStatus: () => Promise<void
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Accept: 'application/json',
+            Accept: 'application/x-ndjson, application/json',
             ...authHeaders(),
           },
           body: JSON.stringify({
@@ -84,24 +91,22 @@ export function useYaari(apiStatus: ApiStatus, refreshStatus: () => Promise<void
             messages,
             userName: stateRef.current.settings.name,
           }),
-          signal: AbortSignal.timeout(45_000),
+          signal: AbortSignal.timeout(80_000),
         });
-        const data = await readApiJson<{ reply?: unknown }>(
-          response,
-          'Your friend couldn’t reply because the app server returned an unexpected response. Please try again.',
-        );
+        const data = await readChatResponse(response, (textSoFar) => {
+          streamingRef.current[id] = textSoFar;
+          setStreaming((v) => ({ ...v, [id]: textSoFar }));
+        });
         void refreshStatus();
-        if (typeof data.reply !== 'string')
-          throw new ApiError(
-            'Your friend couldn’t reply because the app server returned an invalid response. Please try again.',
-            response.status,
-          );
         const reply: Message = {
           id: uid(),
           role: 'assistant',
           text: data.reply,
           createdAt: Date.now(),
         };
+        streamingRef.current[id] = '';
+        setStreaming((v) => ({ ...v, [id]: '' }));
+        setInterrupted((v) => ({ ...v, [id]: false }));
         setState((s) => ({
           ...s,
           conversations: {
@@ -139,6 +144,7 @@ export function useYaari(apiStatus: ApiStatus, refreshStatus: () => Promise<void
           }
         }
       } catch (error) {
+        setInterrupted((v) => ({ ...v, [id]: Boolean(streamingRef.current[id]) }));
         setErrors((e) => ({
           ...e,
           [id]:
@@ -234,6 +240,9 @@ export function useYaari(apiStatus: ApiStatus, refreshStatus: () => Promise<void
       unread: { ...s.unread, [id]: 0 },
     }));
     setErrors((e) => ({ ...e, [id]: '' }));
+    streamingRef.current[id] = '';
+    setStreaming((v) => ({ ...v, [id]: '' }));
+    setInterrupted((v) => ({ ...v, [id]: false }));
     return true;
   }, []);
   const resetAll = useCallback(() => {
@@ -241,6 +250,9 @@ export function useYaari(apiStatus: ApiStatus, refreshStatus: () => Promise<void
     const fresh = initialState();
     setState((s) => ({ ...fresh, settings: s.settings }));
     setErrors({});
+    streamingRef.current = {};
+    setStreaming({});
+    setInterrupted({});
     return true;
   }, []);
 
@@ -257,6 +269,8 @@ export function useYaari(apiStatus: ApiStatus, refreshStatus: () => Promise<void
     selectFriend,
     pending,
     errors,
+    streaming,
+    interrupted,
     sendMessage,
     retry: requestReply,
     toggleFavorite,

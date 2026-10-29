@@ -2445,3 +2445,24 @@ button svg {
     opacity: 0.3;
   }
 }
+
+.stream-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  background: currentColor;
+  animation: stream-caret-blink 1s steps(2, start) infinite;
+}
+.stream-label {
+  display: block;
+  margin-top: 4px;
+  font-size: 9px;
+  color: var(--muted);
+}
+@keyframes stream-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}

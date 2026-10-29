@@ -1,7 +1,7 @@
 import { friends, demoReply } from './demo.mjs';
 import { bearerToken, getSharedStore, sameOrigin } from './credentials.mjs';
 import { chatPrompt, CHAT_MODEL, LIVE_MODEL } from './prompts.mjs';
-import { generateGeminiText } from './gemini.mjs';
+import { generateGeminiText, streamGeminiText } from './gemini.mjs';
 
 const MAX_BODY = 3 * 1024 * 1024;
 const MAX_MESSAGES = 24;
@@ -17,6 +17,9 @@ function json(res, status, value) {
     'Referrer-Policy': 'no-referrer',
   });
   res.end(JSON.stringify(value));
+}
+function writeNdjson(res, value) {
+  if (!res.writableEnded && !res.destroyed) res.write(`${JSON.stringify(value)}\n`);
 }
 async function readJson(req) {
   // Vercel's Node adapter may parse JSON before invoking the handler.
@@ -206,6 +209,43 @@ export function createApiHandler(options = {}) {
             parts.push({ inlineData: { mimeType: m.image.mime, data: m.image.data } });
           return { role: m.role === 'assistant' ? 'model' : 'user', parts };
         });
+        const wantsStream = String(req.headers?.accept || '').includes('application/x-ndjson');
+        if (wantsStream) {
+          res.writeHead(200, {
+            'Content-Type': 'application/x-ndjson; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            'X-Content-Type-Options': 'nosniff',
+            'X-Accel-Buffering': 'no',
+          });
+          res.flushHeaders?.();
+          writeNdjson(res, { type: 'start' });
+          try {
+            const result = await streamGeminiText({
+              apiKey: key,
+              model: chatModel,
+              contents,
+              systemInstruction: chatPrompt(friend, userName),
+              fetcher,
+              onDelta: (text) => {
+                if (res.destroyed || res.writableEnded) throw new Error('Client disconnected');
+                writeNdjson(res, { type: 'delta', text });
+              },
+            });
+            writeNdjson(res, {
+              type: 'done',
+              reply: result.text,
+              mode: 'live',
+              provider: 'gemini',
+            });
+          } catch (error) {
+            writeNdjson(res, {
+              type: 'error',
+              error: error.message || 'Gemini could not complete the reply.',
+              code: error.code || 'GEMINI_NETWORK',
+            });
+          }
+          return res.end();
+        }
         try {
           const result = await generateGeminiText({
             apiKey: key,
