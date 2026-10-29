@@ -67,7 +67,7 @@ test('oversized requests are bounded', async (t) => {
   const url = await fixture(t);
   const response = await fetch(`${url}/chat`, {
     method: 'POST',
-    body: JSON.stringify({ data: 'x'.repeat(65 * 1024) }),
+    body: JSON.stringify({ data: 'x'.repeat(3 * 1024 * 1024 + 1024) }),
   });
   assert.equal(response.status, 413);
 });

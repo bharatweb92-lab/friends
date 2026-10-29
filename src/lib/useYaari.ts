@@ -1,14 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { initialState, loadState, STORAGE_KEY } from './store';
 import { uid } from './utils';
-import type { ApiStatus, Attachment, ChatState, FriendId, Message, Settings } from './types';
+import type {
+  ApiStatus,
+  Attachment,
+  ChatState,
+  FriendId,
+  Message,
+  Settings,
+  CallRecord,
+} from './types';
+import { authHeaders } from './connection';
 
-export function useYaari() {
+export function useYaari(apiStatus: ApiStatus, refreshStatus: () => Promise<void>) {
   const [state, setState] = useState<ChatState>(loadState);
   const [activeId, setActiveId] = useState<FriendId>('aarav');
   const [pending, setPending] = useState<Partial<Record<FriendId, boolean>>>({});
   const [errors, setErrors] = useState<Partial<Record<FriendId, string>>>({});
-  const [apiStatus, setApiStatus] = useState<ApiStatus>({ mode: 'demo' });
+
   const [storageError, setStorageError] = useState(false);
   const activeRef = useRef(activeId);
   const stateRef = useRef(state);
@@ -27,101 +36,112 @@ export function useYaari() {
   useEffect(() => {
     document.documentElement.dataset.theme = state.settings.theme;
   }, [state.settings.theme]);
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch('/api/status', { signal: controller.signal })
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then(setApiStatus)
-      .catch(() => {});
-    return () => controller.abort();
-  }, []);
 
   const selectFriend = useCallback((id: FriendId) => {
     setActiveId(id);
     setState((s) => ({ ...s, unread: { ...s.unread, [id]: 0 } }));
   }, []);
 
-  const requestReply = useCallback(async (id: FriendId) => {
-    if (pendingRef.current.has(id)) return;
-    pendingRef.current.add(id);
-    setPending((p) => ({ ...p, [id]: true }));
-    setErrors((e) => ({ ...e, [id]: '' }));
-    const messages = stateRef.current.conversations[id]
-      .filter((m) => !m.sample)
-      .slice(-24)
-      .map((m) => ({
-        role: m.role,
-        text:
-          m.text ||
-          (m.attachment
-            ? `[User attached ${m.attachment.kind}: ${m.attachment.name}. Only this description is shared with the AI.]`
-            : ''),
-      }));
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ friendId: id, messages, userName: stateRef.current.settings.name }),
-        signal: AbortSignal.timeout(45_000),
-      });
-      const data = await response.json();
-      if (!response.ok || typeof data.reply !== 'string')
-        throw new Error(data.error || 'Your friend couldn’t reply. Please try again.');
-      const reply: Message = {
-        id: uid(),
-        role: 'assistant',
-        text: data.reply,
-        createdAt: Date.now(),
-      };
-      setState((s) => ({
-        ...s,
-        conversations: {
-          ...s.conversations,
-          [id]: [
-            ...s.conversations[id].map((m) =>
-              m.role === 'user' ? { ...m, status: 'read' as const } : m,
-            ),
-            reply,
-          ].slice(-100),
-        },
-        unread: { ...s.unread, [id]: activeRef.current === id ? 0 : s.unread[id] + 1 },
-      }));
-      if (
-        stateRef.current.settings.sound &&
-        !stateRef.current.muted.includes(id) &&
-        activeRef.current === id
-      ) {
-        try {
-          const audio = new AudioContext();
-          const oscillator = audio.createOscillator();
-          const gain = audio.createGain();
-          oscillator.connect(gain);
-          gain.connect(audio.destination);
-          oscillator.frequency.value = 680;
-          gain.gain.setValueAtTime(0.035, audio.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.15);
-          oscillator.start();
-          oscillator.stop(audio.currentTime + 0.15);
-          oscillator.onended = () => {
-            void audio.close();
-          };
-        } catch {
-          /* Sound is optional. */
+  const requestReply = useCallback(
+    async (id: FriendId) => {
+      if (pendingRef.current.has(id)) return;
+      pendingRef.current.add(id);
+      setPending((p) => ({ ...p, [id]: true }));
+      setErrors((e) => ({ ...e, [id]: '' }));
+      const messages = stateRef.current.conversations[id]
+        .filter((m) => !m.sample)
+        .slice(-24)
+        .map((m, index, recent) => ({
+          role: m.role,
+          text:
+            m.text ||
+            (m.attachment ? `[User attached ${m.attachment.kind}: ${m.attachment.name}.]` : ''),
+          ...(m.role === 'user' &&
+          index === recent.length - 1 &&
+          m.attachment?.kind === 'image' &&
+          ['image/jpeg', 'image/png', 'image/webp'].includes(
+            m.attachment.dataUrl.slice(5, m.attachment.dataUrl.indexOf(';')),
+          )
+            ? {
+                image: {
+                  mime: m.attachment.dataUrl.slice(5, m.attachment.dataUrl.indexOf(';')),
+                  data: m.attachment.dataUrl.split(',')[1],
+                },
+              }
+            : {}),
+        }));
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({
+            friendId: id,
+            messages,
+            userName: stateRef.current.settings.name,
+          }),
+          signal: AbortSignal.timeout(45_000),
+        });
+        const data = await response.json();
+        void refreshStatus();
+        if (!response.ok || typeof data.reply !== 'string')
+          throw new Error(data.error || 'Your friend couldn’t reply. Please try again.');
+        const reply: Message = {
+          id: uid(),
+          role: 'assistant',
+          text: data.reply,
+          createdAt: Date.now(),
+        };
+        setState((s) => ({
+          ...s,
+          conversations: {
+            ...s.conversations,
+            [id]: [
+              ...s.conversations[id].map((m) =>
+                m.role === 'user' ? { ...m, status: 'read' as const } : m,
+              ),
+              reply,
+            ].slice(-100),
+          },
+          unread: { ...s.unread, [id]: activeRef.current === id ? 0 : s.unread[id] + 1 },
+        }));
+        if (
+          stateRef.current.settings.sound &&
+          !stateRef.current.muted.includes(id) &&
+          activeRef.current === id
+        ) {
+          try {
+            const audio = new AudioContext();
+            const oscillator = audio.createOscillator();
+            const gain = audio.createGain();
+            oscillator.connect(gain);
+            gain.connect(audio.destination);
+            oscillator.frequency.value = 680;
+            gain.gain.setValueAtTime(0.035, audio.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.15);
+            oscillator.start();
+            oscillator.stop(audio.currentTime + 0.15);
+            oscillator.onended = () => {
+              void audio.close();
+            };
+          } catch {
+            /* Sound is optional. */
+          }
         }
+      } catch (error) {
+        setErrors((e) => ({
+          ...e,
+          [id]:
+            error instanceof Error && error.name !== 'TimeoutError'
+              ? error.message
+              : 'The connection took too long. Your message is saved — try again.',
+        }));
+      } finally {
+        pendingRef.current.delete(id);
+        setPending((p) => ({ ...p, [id]: false }));
       }
-    } catch (error) {
-      setErrors((e) => ({
-        ...e,
-        [id]:
-          error instanceof Error && error.name !== 'TimeoutError'
-            ? error.message
-            : 'The connection took too long. Your message is saved — try again.',
-      }));
-    } finally {
-      pendingRef.current.delete(id);
-      setPending((p) => ({ ...p, [id]: false }));
-    }
-  }, []);
+    },
+    [refreshStatus],
+  );
 
   const sendMessage = useCallback(
     (text: string, attachment?: Attachment) => {
@@ -209,7 +229,14 @@ export function useYaari() {
     return true;
   }, []);
 
+  const addCall = useCallback((call: CallRecord) => {
+    setState((s) => ({ ...s, calls: [call, ...s.calls].slice(0, 50) }));
+  }, []);
+  const clearCalls = useCallback(() => setState((s) => ({ ...s, calls: [] })), []);
+
   return {
+    addCall,
+    clearCalls,
     state,
     activeId,
     selectFriend,

@@ -1,5 +1,5 @@
 import friendData from '../../data/friends.json';
-import type { ChatState, Friend, Message } from './types';
+import type { ChatState, Friend, Message, CallRecord } from './types';
 import { isFriendId, uid } from './utils';
 
 export const FRIENDS = friendData as Friend[];
@@ -25,7 +25,14 @@ export function initialState(): ChatState {
     unread,
     favorites: ['ananya'],
     muted: [],
-    settings: { name: 'You', theme: 'light', sound: false },
+    settings: {
+      name: 'You',
+      theme: 'light',
+      sound: false,
+      saveTranscripts: false,
+      mirrorCamera: true,
+    },
+    calls: [],
   };
 }
 
@@ -77,7 +84,41 @@ export function loadState(): ChatState {
           : 'You',
       theme: saved.settings?.theme === 'dark' ? 'dark' : 'light',
       sound: Boolean(saved.settings?.sound),
+      saveTranscripts: Boolean(saved.settings?.saveTranscripts),
+      mirrorCamera: saved.settings?.mirrorCamera !== false,
     };
+    fallback.calls = Array.isArray(saved.calls)
+      ? saved.calls
+          .filter(
+            (call: CallRecord) =>
+              call &&
+              typeof call.id === 'string' &&
+              isFriendId(call.friendId) &&
+              ['voice', 'video'].includes(call.mode) &&
+              Number.isFinite(call.startedAt) &&
+              Number.isFinite(call.duration) &&
+              call.duration >= 0 &&
+              ['completed', 'failed', 'cancelled'].includes(call.status),
+          )
+          .slice(0, 50)
+          .map((call) => ({
+            ...call,
+            cameraUsed: Boolean(call.cameraUsed),
+            ...(Array.isArray(call.transcript)
+              ? {
+                  transcript: call.transcript
+                    .filter(
+                      (line) =>
+                        line &&
+                        ['user', 'assistant'].includes(line.role) &&
+                        typeof line.text === 'string',
+                    )
+                    .slice(0, 200)
+                    .map((line) => ({ role: line.role, text: line.text.slice(0, 40_000) })),
+                }
+              : {}),
+          }))
+      : [];
     return fallback;
   } catch {
     return fallback;

@@ -11,7 +11,7 @@ import {
   LoaderCircle,
   ShieldCheck,
 } from 'lucide-react';
-import type { Attachment, Friend } from '../lib/types';
+import type { ApiStatus, Attachment, Friend } from '../lib/types';
 import { formatSize } from '../lib/utils';
 import { IconButton } from './UI';
 
@@ -49,6 +49,7 @@ type Props = {
   recordingRequest: number;
   onMode: () => void;
   mode: 'demo' | 'live';
+  provider: ApiStatus['provider'];
 };
 async function fileToAttachment(file: File): Promise<Attachment> {
   if (file.size > 5 * 1024 * 1024)
@@ -60,7 +61,12 @@ async function fileToAttachment(file: File): Promise<Attachment> {
     reader.readAsDataURL(file);
   });
   let finalUrl = dataUrl;
-  if (file.type.startsWith('image/') && file.type !== 'image/gif') {
+  if (
+    file.type.startsWith('image/') &&
+    !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)
+  )
+    throw new Error('Choose a JPEG, PNG, or WebP photo. Other files can be attached as documents.');
+  if (file.type.startsWith('image/')) {
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
       const img = new window.Image();
       img.onload = () => resolve(img);
@@ -84,7 +90,7 @@ async function fileToAttachment(file: File): Promise<Attachment> {
   return {
     kind: file.type.startsWith('image/') ? 'image' : 'file',
     name: file.name,
-    mime: file.type || 'application/octet-stream',
+    mime: file.type.startsWith('image/') ? 'image/webp' : file.type || 'application/octet-stream',
     size: file.size,
     dataUrl: finalUrl,
   };
@@ -98,6 +104,7 @@ export default function Composer({
   recordingRequest,
   onMode,
   mode,
+  provider,
 }: Props) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [attachment, setAttachment] = useState<Attachment>();
@@ -276,7 +283,12 @@ export default function Composer({
           )}
           <div>
             <strong>{attachment.name}</strong>
-            <span>{formatSize(attachment.size)} · Saved only on this device</span>
+            <span>
+              {formatSize(attachment.size)} ·{' '}
+              {attachment.kind === 'image' && provider === 'gemini'
+                ? 'Photo can be shared with Gemini'
+                : 'Saved only on this device'}
+            </span>
           </div>
           <IconButton label="Remove attachment" onClick={() => setAttachment(undefined)}>
             <X size={18} />
@@ -411,16 +423,18 @@ export default function Composer({
             </button>
             <p>
               <ShieldCheck size={13} />
-              Attachments stay on this device.
+              {provider === 'gemini'
+                ? 'Photos can be shared with Gemini.'
+                : 'Photos stay on this device in this mode.'}
               <br />
-              AI replies use your text, not file contents.
+              Voice notes and documents stay on this device.
             </p>
           </div>
         )}
       </div>
       <input
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/webp"
         ref={imageInput}
         className="visually-hidden"
         aria-label="Upload a photo"

@@ -32,7 +32,23 @@ export type Friend = {
   suggestions: string[];
   unread: number;
 };
-export type Settings = { name: string; theme: 'light' | 'dark'; sound: boolean };
+export type Settings = {
+  name: string;
+  theme: 'light' | 'dark';
+  sound: boolean;
+  saveTranscripts: boolean;
+  mirrorCamera: boolean;
+};
+export type CallRecord = {
+  id: string;
+  friendId: FriendId;
+  mode: 'voice' | 'video';
+  startedAt: number;
+  duration: number;
+  cameraUsed: boolean;
+  status: 'completed' | 'failed' | 'cancelled';
+  transcript?: { role: Role; text: string }[];
+};
 export type ChatState = {
   version: 1;
   conversations: Record<FriendId, Message[]>;
@@ -40,5 +56,16 @@ export type ChatState = {
   favorites: FriendId[];
   muted: FriendId[];
   settings: Settings;
+  calls: CallRecord[];
 };
-export type ApiStatus = { mode: 'demo' | 'live'; model?: string };
+export type ApiStatus = {
+  mode: 'demo' | 'live';
+  provider: 'demo' | 'gemini' | 'openai';
+  geminiConnected: boolean;
+  liveAvailable: boolean;
+  source?: 'session' | 'server' | 'none';
+  chatModel?: string;
+  liveModel?: string;
+  expiresAt?: number;
+};
+export type Section = 'home' | 'chats' | 'calls' | 'settings';
