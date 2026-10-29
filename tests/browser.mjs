@@ -297,6 +297,27 @@ try {
   await callPage.getByRole('button', { name: 'Show API key', exact: true }).click();
   assert.equal(await callPage.locator('#gemini-key').getAttribute('type'), 'text');
   await callPage.getByRole('button', { name: 'Hide API key', exact: true }).click();
+  // A proxy/static host can return HTML instead of JSON. The UI must explain that
+  // clearly, keep the typed key for retry, and never store a bogus session.
+  await callPage.route(
+    '**/api/gemini/connect',
+    (route) =>
+      route.fulfill({
+        status: 502,
+        contentType: 'text/html; charset=utf-8',
+        body: '<!doctype html><html><body>Bad Gateway</body></html>',
+      }),
+    { times: 1 },
+  );
+  await callPage.getByRole('button', { name: 'Connect Gemini', exact: true }).click();
+  await callPage
+    .getByRole('alert')
+    .filter({
+      hasText: 'The app server or preview proxy could not complete the request (HTTP 502)',
+    })
+    .waitFor();
+  assert.equal(await callPage.locator('#gemini-key').inputValue(), mockKey);
+  assert.equal(await callPage.evaluate(() => sessionStorage.getItem('yaari.gemini.session')), null);
   await callPage.getByRole('button', { name: 'Connect Gemini', exact: true }).click();
   await callPage.getByRole('button', { name: 'Disconnect & remove key' }).waitFor();
   assert.equal(

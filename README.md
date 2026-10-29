@@ -61,6 +61,15 @@ Restart the server after changing `.env`. `GOOGLE_API_KEY` is also accepted. Nev
 
 Connecting a key validates the chat model endpoint. Voice/video calling additionally requires that the key/project have access to the configured Gemini Live model and quota.
 
+### Troubleshooting: “web page instead of JSON” / HTTP 404, 405, 502, 503, 504
+
+Settings expects the Yaari **Node API** to answer `/api/gemini/connect` with JSON. If a static host, SPA fallback, or preview proxy returns an HTML error page instead, the app now shows an actionable message rather than a raw `JSON.parse` error, and the typed key stays in the form so you can retry.
+
+- **HTTP 404/405 or “web page instead of JSON”** usually means only the frontend was deployed. Run `npm run dev` locally, or deploy the full Node server (`npm run build && npm start`) so `/api` and `/api/live` are served by Yaari.
+- **HTTP 502/503/504** usually means the preview proxy or server could not complete the request. Check that the Node process is running and reachable.
+- **“Couldn’t reach Gemini”** means the Yaari server itself cannot make outbound HTTPS requests to `generativelanguage.googleapis.com`. Restricted sandboxes may block this even when the UI loads correctly; use a local machine or a host with outbound Gemini access.
+- A key is only marked connected after the server validates it and returns a valid opaque session token.
+
 ### Models
 
 Defaults are configured in `server/prompts.mjs` and can be overridden with `GEMINI_CHAT_MODEL` and `GEMINI_LIVE_MODEL`:

@@ -11,6 +11,7 @@ import type {
   CallRecord,
 } from './types';
 import { authHeaders } from './connection';
+import { ApiError, readApiJson } from './apiResponse';
 
 export function useYaari(apiStatus: ApiStatus, refreshStatus: () => Promise<void>) {
   const [state, setState] = useState<ChatState>(loadState);
@@ -73,7 +74,11 @@ export function useYaari(apiStatus: ApiStatus, refreshStatus: () => Promise<void
       try {
         const response = await fetch('/api/chat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            ...authHeaders(),
+          },
           body: JSON.stringify({
             friendId: id,
             messages,
@@ -81,10 +86,16 @@ export function useYaari(apiStatus: ApiStatus, refreshStatus: () => Promise<void
           }),
           signal: AbortSignal.timeout(45_000),
         });
-        const data = await response.json();
+        const data = await readApiJson<{ reply?: unknown }>(
+          response,
+          'Your friend couldn’t reply because the app server returned an unexpected response. Please try again.',
+        );
         void refreshStatus();
-        if (!response.ok || typeof data.reply !== 'string')
-          throw new Error(data.error || 'Your friend couldn’t reply. Please try again.');
+        if (typeof data.reply !== 'string')
+          throw new ApiError(
+            'Your friend couldn’t reply because the app server returned an invalid response. Please try again.',
+            response.status,
+          );
         const reply: Message = {
           id: uid(),
           role: 'assistant',
@@ -131,9 +142,13 @@ export function useYaari(apiStatus: ApiStatus, refreshStatus: () => Promise<void
         setErrors((e) => ({
           ...e,
           [id]:
-            error instanceof Error && error.name !== 'TimeoutError'
+            error instanceof ApiError
               ? error.message
-              : 'The connection took too long. Your message is saved — try again.',
+              : error instanceof Error && error.name === 'TimeoutError'
+                ? 'The connection took too long. Your message is saved — try again.'
+                : error instanceof Error && error.name !== 'TypeError'
+                  ? error.message
+                  : 'Could not reach the app server. Your message is saved — check the server and try again.',
         }));
       } finally {
         pendingRef.current.delete(id);

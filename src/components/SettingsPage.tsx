@@ -105,9 +105,10 @@ export default function SettingsPage({
   const connect = async (event: React.FormEvent) => {
     event.preventDefault();
     const value = key.trim();
-    setKey('');
-    if (await connection.connect(value))
+    if (await connection.connect(value)) {
+      setKey('');
       onToast('Gemini connected. Your friends are ready to chat and call.');
+    }
   };
   return (
     <main className="page settings-page">
