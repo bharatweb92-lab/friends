@@ -34,6 +34,25 @@ import type { FriendId, Message } from '../lib/types';
 type Dialog = 'new' | 'clear' | 'reset' | null;
 type ChatController = ReturnType<typeof useYaari>;
 
+function TypingStatus({ name }: { name: string }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    setSlow(false);
+    const timer = window.setTimeout(() => setSlow(true), 8_000);
+    return () => window.clearTimeout(timer);
+  }, [name]);
+  return (
+    <div className="typing-row" role="status">
+      <div className="typing-bubble">
+        <span />
+        <span />
+        <span />
+      </div>
+      <small>{slow ? `Still waiting for Gemini’s reply…` : `${name} is typing`}</small>
+    </div>
+  );
+}
+
 export default function ChatScreen({
   chat,
   onSettings,
@@ -418,16 +437,7 @@ export default function ChatScreen({
                 />
               ))}
             </div>
-            {pending[activeId] && (
-              <div className="typing-row" role="status">
-                <div className="typing-bubble">
-                  <span />
-                  <span />
-                  <span />
-                </div>
-                <small>{friend.name} is typing</small>
-              </div>
-            )}
+            {pending[activeId] && <TypingStatus name={friend.name} />}
             {errors[activeId] && (
               <div className="chat-error" role="alert">
                 <AlertCircle size={17} />

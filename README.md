@@ -43,7 +43,7 @@ Alternatively, copy `.env.example` to `.env` and set server-only values:
 
 ```dotenv
 GEMINI_API_KEY=your-gemini-key
-GEMINI_CHAT_MODEL=gemini-flash-latest
+GEMINI_CHAT_MODEL=gemini-3.8-flash
 GEMINI_LIVE_MODEL=gemini-3.8-live
 PORT=3000
 ```
@@ -59,7 +59,7 @@ Restart the server after changing `.env`. `GOOGLE_API_KEY` is also accepted. Nev
 - Chat sends the persona prompt, preferred display name, up to 24 recent non-sample messages, and the latest supported photo to Gemini.
 - Google's retention, billing, and privacy terms apply. Set provider spend limits before regular use.
 
-Connecting a key validates the chat model endpoint. Voice/video calling additionally requires that the key/project have access to the configured Gemini Live model and quota.
+Connecting a key sends a tiny test generation to prove the key can actually chat; this can use a small amount of Gemini quota. Voice/video calling additionally requires that the key/project have access to the configured Gemini Live model and quota.
 
 ### Troubleshooting: “web page instead of JSON” / HTTP 404, 405, 502, 503, 504
 
@@ -68,13 +68,13 @@ Settings expects the Yaari **Node API** to answer `/api/gemini/connect` with JSO
 - **HTTP 404/405 or “web page instead of JSON”** usually means only the frontend was deployed. Run `npm run dev` locally, or deploy the full Node server (`npm run build && npm start`) so `/api` and `/api/live` are served by Yaari.
 - **HTTP 502/503/504** usually means the preview proxy or server could not complete the request. Check that the Node process is running and reachable.
 - **“Couldn’t reach Gemini”** means the Yaari server itself cannot make outbound HTTPS requests to `generativelanguage.googleapis.com`. Restricted sandboxes may block this even when the UI loads correctly; use a local machine or a host with outbound Gemini access.
-- A key is only marked connected after the server validates it and returns a valid opaque session token.
+- A key is only marked connected after a real test generation succeeds and the server returns a valid session token.
 
 ### Models
 
 Defaults are configured in `server/prompts.mjs` and can be overridden with `GEMINI_CHAT_MODEL` and `GEMINI_LIVE_MODEL`:
 
-- Chat: `gemini-flash-latest`
+- Chat: `gemini-3.8-flash`
 - Live: `gemini-3.8-live`
 
 Model availability changes over time. If Gemini rejects a model, check Google AI Studio / the current Gemini model list and update the environment variable rather than hard-coding a new value in the client.

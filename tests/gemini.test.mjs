@@ -54,7 +54,7 @@ test('Settings validates a Gemini key server-side and never returns it', async (
   const { url, store } = await fixture(t, {
     fetch: async (url, options) => {
       validation = { url: String(url), options };
-      return Response.json({ name: 'models/gemini-flash-latest' });
+      return Response.json({ candidates: [{ content: { parts: [{ text: 'OK' }] } }] });
     },
   });
   const response = await fetch(`${url}/gemini/connect`, {
@@ -66,7 +66,12 @@ test('Settings validates a Gemini key server-side and never returns it', async (
   assert.equal(body.geminiConnected, true);
   assert.equal(body.liveAvailable, true);
   assert.equal(body.source, 'session');
-  assert.equal(validation.options.headers['x-goog-api-key'], key);
+  assert.match(validation.url, /gemini-3\.8-flash:generateContent/);
+  assert.equal(validation.options.method, 'POST');
+  assert.equal(new Headers(validation.options.headers).get('x-goog-api-key'), key);
+  const check = JSON.parse(validation.options.body);
+  assert.equal(check.generationConfig.thinkingConfig.thinkingLevel, 'LOW');
+  assert.ok(check.generationConfig.maxOutputTokens <= 512);
   assert.ok(!JSON.stringify(body).includes(key));
   assert.equal(store.get(body.token).key, key);
   const status = await (
@@ -110,15 +115,20 @@ test('Gemini chat sends persona, language context, and the latest photo', async 
   const response = await fetch(`${url}/chat`, { method: 'POST', body: JSON.stringify(message) });
   const body = await response.json();
   assert.equal(body.provider, 'gemini');
-  assert.match(request.url, /gemini-flash-latest:generateContent/);
+  assert.match(request.url, /gemini-3\.8-flash:generateContent/);
+  assert.equal(request.options.method, 'POST');
   const payload = JSON.parse(request.options.body);
   assert.match(payload.systemInstruction.parts[0].text, /Aarav/);
   assert.match(payload.systemInstruction.parts[0].text, /Hindi/);
   assert.equal(payload.contents[0].parts[1].inlineData.mimeType, 'image/webp');
   assert.equal(payload.contents[0].role, 'user');
+  assert.equal(payload.generationConfig.thinkingConfig.thinkingLevel, 'LOW');
+  assert.equal(payload.generationConfig.maxOutputTokens, 2048);
 });
 test('disconnect removes the key and immediately restores demo status', async (t) => {
-  const { url, store } = await fixture(t, { fetch: async () => Response.json({ name: 'model' }) });
+  const { url, store } = await fixture(t, {
+    fetch: async () => Response.json({ candidates: [{ content: { parts: [{ text: 'OK' }] } }] }),
+  });
   const session = await (
     await fetch(`${url}/gemini/connect`, { method: 'POST', body: JSON.stringify({ apiKey: key }) })
   ).json();
@@ -135,8 +145,10 @@ test('Gemini provider errors preserve user data and do not leak credentials', as
     fetch: async () => new Response(`error ${key}`, { status: 429 }),
   });
   const response = await fetch(`${url}/chat`, { method: 'POST', body: JSON.stringify(message) });
-  assert.equal(response.status, 502);
-  assert.ok(!(await response.text()).includes(key));
+  assert.equal(response.status, 429);
+  const body = await response.json();
+  assert.equal(body.code, 'GEMINI_QUOTA');
+  assert.ok(!JSON.stringify(body).includes(key));
 });
 
 test('evicting the oldest credential revokes its active-call subscription', () => {
@@ -150,4 +162,87 @@ test('evicting the oldest credential revokes its active-call subscription', () =
   assert.equal(store.get(first.token), undefined);
   assert.equal(revoked, true);
   assert.equal(store.size, 1);
+});
+
+test('Gemini chat returns visible text, never thought summaries', async (t) => {
+  const { url } = await fixture(t, {
+    env: { GEMINI_API_KEY: key },
+    fetch: async () =>
+      Response.json({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: 'private reasoning', thought: true }, { text: 'Hello, friend.' }],
+            },
+          },
+        ],
+      }),
+  });
+  const response = await fetch(`${url}/chat`, { method: 'POST', body: JSON.stringify(message) });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.reply, 'Hello, friend.');
+  assert.ok(!JSON.stringify(body).includes('private reasoning'));
+});
+
+test('temporary Gemini upstream failures are retried once within a bounded budget', async (t) => {
+  let calls = 0;
+  const { url } = await fixture(t, {
+    env: { GEMINI_API_KEY: key },
+    fetch: async () => {
+      calls++;
+      if (calls === 1) return Response.json({ error: { status: 'UNAVAILABLE' } }, { status: 503 });
+      return Response.json({ candidates: [{ content: { parts: [{ text: 'I am here.' }] } }] });
+    },
+  });
+  const response = await fetch(`${url}/chat`, { method: 'POST', body: JSON.stringify(message) });
+  assert.equal(response.status, 200);
+  assert.equal(calls, 2);
+  assert.equal((await response.json()).reply, 'I am here.');
+});
+
+test('Gemini timeouts and empty replies become actionable JSON, not endless typing', async (t) => {
+  const timeout = await fixture(t, {
+    env: { GEMINI_API_KEY: key },
+    fetch: async () => {
+      throw new DOMException('test timeout', 'TimeoutError');
+    },
+  });
+  const timedOut = await fetch(`${timeout.url}/chat`, {
+    method: 'POST',
+    body: JSON.stringify(message),
+  });
+  assert.equal(timedOut.status, 504);
+  assert.equal((await timedOut.json()).code, 'GEMINI_TIMEOUT');
+  const empty = await fixture(t, {
+    env: { GEMINI_API_KEY: key },
+    fetch: async () =>
+      Response.json({
+        candidates: [
+          {
+            content: { parts: [{ text: 'reasoning', thought: true }] },
+            finishReason: 'MAX_TOKENS',
+          },
+        ],
+      }),
+  });
+  const noText = await fetch(`${empty.url}/chat`, {
+    method: 'POST',
+    body: JSON.stringify(message),
+  });
+  assert.equal(noText.status, 502);
+  assert.equal((await noText.json()).code, 'GEMINI_EMPTY');
+});
+
+test('a key that can read metadata but cannot generate is not marked connected', async (t) => {
+  const { url, store } = await fixture(t, {
+    fetch: async () => Response.json({ error: { status: 'PERMISSION_DENIED' } }, { status: 403 }),
+  });
+  const response = await fetch(`${url}/gemini/connect`, {
+    method: 'POST',
+    body: JSON.stringify({ apiKey: key }),
+  });
+  assert.equal(response.status, 401);
+  assert.equal(store.size, 0);
+  assert.match((await response.json()).error, /rejected/);
 });

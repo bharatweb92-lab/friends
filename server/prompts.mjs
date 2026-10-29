@@ -1,4 +1,4 @@
-export const CHAT_MODEL = 'gemini-flash-latest';
+export const CHAT_MODEL = 'gemini-3.8-flash';
 export const LIVE_MODEL = 'gemini-3.8-live';
 export const VOICES = { aarav: 'Puck', ananya: 'Kore', kabir: 'Charon', meera: 'Leda' };
 

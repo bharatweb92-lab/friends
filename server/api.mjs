@@ -1,6 +1,7 @@
 import { friends, demoReply } from './demo.mjs';
 import { bearerToken, getSharedStore, sameOrigin } from './credentials.mjs';
 import { chatPrompt, CHAT_MODEL, LIVE_MODEL } from './prompts.mjs';
+import { generateGeminiText } from './gemini.mjs';
 
 const MAX_BODY = 3 * 1024 * 1024;
 const MAX_MESSAGES = 24;
@@ -18,6 +19,23 @@ function json(res, status, value) {
   res.end(JSON.stringify(value));
 }
 async function readJson(req) {
+  // Vercel's Node adapter may parse JSON before invoking the handler.
+  if (req.body !== undefined) {
+    if (typeof req.body === 'object' && req.body !== null) return req.body;
+    const text = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : String(req.body);
+    if (Buffer.byteLength(text) > MAX_BODY) {
+      const error = new Error('Request too large');
+      error.status = 413;
+      throw error;
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      const error = new Error('Invalid JSON');
+      error.status = 400;
+      throw error;
+    }
+  }
   let size = 0;
   const chunks = [];
   for await (const chunk of req) {
@@ -122,31 +140,23 @@ export function createApiHandler(options = {}) {
         const key = typeof body?.apiKey === 'string' ? body.apiKey.trim() : '';
         if (key.length < 20 || key.length > 200 || /\s/.test(key))
           return json(res, 400, { error: 'Enter a valid Gemini API key from Google AI Studio.' });
-        let response;
         try {
-          response = await fetcher(
-            `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(chatModel)}`,
-            { headers: { 'x-goog-api-key': key }, signal: AbortSignal.timeout(15_000) },
-          );
-        } catch {
-          return json(res, 502, {
-            error: 'Couldn’t reach Gemini. Check the server’s internet connection and try again.',
+          // Prove generation works, not just that model metadata is readable.
+          // This tiny check can use a small amount of the user's Gemini quota.
+          await generateGeminiText({
+            apiKey: key,
+            model: chatModel,
+            contents: 'Reply with exactly OK.',
+            fetcher,
+            deadlineMs: 18_000,
+            attemptTimeoutMs: 15_000,
+            maxOutputTokens: 512,
+            temperature: 0,
+            attempts: 1,
           });
+        } catch (error) {
+          return json(res, error.status || 502, { error: error.message });
         }
-        if (response.status === 400 || response.status === 401 || response.status === 403)
-          return json(res, 401, {
-            error:
-              'Gemini didn’t accept that key. Check the key and its API permissions in Google AI Studio.',
-          });
-        if (response.status === 429)
-          return json(res, 429, {
-            error:
-              'This Gemini project has reached its quota. Check billing and limits in Google AI Studio.',
-          });
-        if (!response.ok)
-          return json(res, 502, {
-            error: 'Gemini is unavailable right now. Please try again shortly.',
-          });
         store.delete(bearerToken(req));
         const session = store.create(key);
         return json(res, 200, {
@@ -196,61 +206,18 @@ export function createApiHandler(options = {}) {
             parts.push({ inlineData: { mimeType: m.image.mime, data: m.image.data } });
           return { role: m.role === 'assistant' ? 'model' : 'user', parts };
         });
-        let upstream;
         try {
-          upstream = await fetcher(
-            `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(chatModel)}:generateContent`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-              body: JSON.stringify({
-                systemInstruction: { parts: [{ text: chatPrompt(friend, userName) }] },
-                contents,
-                generationConfig: { temperature: 0.8, maxOutputTokens: 1024 },
-              }),
-              signal: AbortSignal.timeout(35_000),
-            },
-          );
+          const result = await generateGeminiText({
+            apiKey: key,
+            model: chatModel,
+            contents,
+            systemInstruction: chatPrompt(friend, userName),
+            fetcher,
+          });
+          return json(res, 200, { reply: result.text, mode: 'live', provider: 'gemini' });
         } catch (error) {
-          const reason =
-            error?.name === 'TimeoutError' || error?.name === 'AbortError'
-              ? 'Gemini took too long to answer. Please try again.'
-              : `${friend.name} couldn’t reach Gemini. Your message is saved — please try again.`;
-          console.error('Gemini chat request failed', {
-            name: error?.name,
-            code: error?.cause?.code || error?.code,
-          });
-          return json(res, 502, { error: reason });
+          return json(res, error.status || 502, { error: error.message, code: error.code });
         }
-        if (!upstream.ok) {
-          let upstreamCode;
-          try {
-            const problem = await upstream.json();
-            upstreamCode = problem?.error?.status || problem?.error?.code;
-          } catch {
-            /* Ignore non-JSON provider errors. */
-          }
-          console.error('Gemini chat rejected', { status: upstream.status, upstreamCode });
-          return json(res, 502, {
-            error:
-              upstream.status === 429
-                ? 'Gemini’s usage limit was reached. Check your project quota, then try again.'
-                : upstream.status === 400 || upstream.status === 401 || upstream.status === 403
-                  ? 'Gemini rejected the request. Check your key, model access, and API restrictions in Settings.'
-                  : 'Gemini couldn’t reply. Check your key, model access, and quota in Settings.',
-          });
-        }
-        const result = await upstream.json();
-        const reply = result.candidates?.[0]?.content?.parts
-          ?.filter((p) => typeof p.text === 'string' && !p.thought)
-          .map((p) => p.text)
-          .join('')
-          .trim();
-        if (!reply)
-          return json(res, 502, {
-            error: 'Gemini returned no usable text. Try rephrasing your message.',
-          });
-        return json(res, 200, { reply: reply.slice(0, 8000), mode: 'live', provider: 'gemini' });
       }
       if (envOpenAI) {
         const base = (env.AI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');

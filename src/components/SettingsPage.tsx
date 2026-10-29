@@ -227,6 +227,9 @@ export default function SettingsPage({
                       {error}
                     </p>
                   )}
+                  <p className="subtle-label">
+                    Connecting sends a tiny test message and may use a small amount of Gemini quota.
+                  </p>
                   <div className="key-form-footer">
                     <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">
                       Get a key from Google AI Studio
@@ -240,7 +243,7 @@ export default function SettingsPage({
                       {busy ? (
                         <>
                           <LoaderCircle size={16} className="spin" />
-                          Checking key…
+                          Testing a real reply…
                         </>
                       ) : (
                         <>

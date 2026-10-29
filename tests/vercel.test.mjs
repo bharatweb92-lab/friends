@@ -45,13 +45,19 @@ test('Vercel adapter reports chat-only hosting and keeps key sessions across ins
     if (!target.startsWith('https://generativelanguage.googleapis.com/'))
       return originalFetch(url, init);
     if (target.includes(':generateContent')) {
-      assert.equal(init.headers['x-goog-api-key'], 'AIzaSyDUMMY_VERCEL_KEY_1234567890');
+      assert.equal(
+        new Headers(init.headers).get('x-goog-api-key'),
+        'AIzaSyDUMMY_VERCEL_KEY_1234567890',
+      );
       return Response.json({
         candidates: [{ content: { parts: [{ text: 'Hello from Vercel' }] } }],
       });
     }
-    assert.equal(init.headers['x-goog-api-key'], 'AIzaSyDUMMY_VERCEL_KEY_1234567890');
-    return Response.json({ name: 'models/gemini-flash-latest' });
+    assert.equal(
+      new Headers(init.headers).get('x-goog-api-key'),
+      'AIzaSyDUMMY_VERCEL_KEY_1234567890',
+    );
+    return Response.json({ candidates: [{ content: { parts: [{ text: 'OK' }] } }] });
   };
   try {
     const { default: handler } = await import('../server/vercel.mjs');
