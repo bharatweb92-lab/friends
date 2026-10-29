@@ -211,18 +211,35 @@ export function createApiHandler(options = {}) {
               signal: AbortSignal.timeout(35_000),
             },
           );
-        } catch {
-          return json(res, 502, {
-            error: `${friend.name} couldn’t reach Gemini. Your message is saved — please try again.`,
+        } catch (error) {
+          const reason =
+            error?.name === 'TimeoutError' || error?.name === 'AbortError'
+              ? 'Gemini took too long to answer. Please try again.'
+              : `${friend.name} couldn’t reach Gemini. Your message is saved — please try again.`;
+          console.error('Gemini chat request failed', {
+            name: error?.name,
+            code: error?.cause?.code || error?.code,
           });
+          return json(res, 502, { error: reason });
         }
-        if (!upstream.ok)
+        if (!upstream.ok) {
+          let upstreamCode;
+          try {
+            const problem = await upstream.json();
+            upstreamCode = problem?.error?.status || problem?.error?.code;
+          } catch {
+            /* Ignore non-JSON provider errors. */
+          }
+          console.error('Gemini chat rejected', { status: upstream.status, upstreamCode });
           return json(res, 502, {
             error:
               upstream.status === 429
                 ? 'Gemini’s usage limit was reached. Check your project quota, then try again.'
-                : 'Gemini couldn’t reply. Check your key, model access, and quota in Settings.',
+                : upstream.status === 400 || upstream.status === 401 || upstream.status === 403
+                  ? 'Gemini rejected the request. Check your key, model access, and API restrictions in Settings.'
+                  : 'Gemini couldn’t reply. Check your key, model access, and quota in Settings.',
           });
+        }
         const result = await upstream.json();
         const reply = result.candidates?.[0]?.content?.parts
           ?.filter((p) => typeof p.text === 'string' && !p.thought)

@@ -22,6 +22,23 @@ function json(res, status, value) {
 export default async function vercelApi(req, res) {
   const url = new URL(req.url || '/', 'http://vercel.local');
   const path = url.pathname.replace(/^\/api/, '') || '/';
+  if (path === '/health' && req.method === 'GET') {
+    try {
+      const probe = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
+        signal: AbortSignal.timeout(8_000),
+      });
+      return json(res, 200, { ok: true, geminiReachable: true, probeStatus: probe.status });
+    } catch (error) {
+      return json(res, 200, {
+        ok: true,
+        geminiReachable: false,
+        probeError:
+          error?.name === 'TimeoutError'
+            ? 'timeout'
+            : error?.cause?.code || error?.code || 'network',
+      });
+    }
+  }
   if (path === '/live' || path.startsWith('/live/'))
     return json(res, 501, {
       error:
