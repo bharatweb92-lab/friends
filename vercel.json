@@ -4,8 +4,8 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
-    "api/[...path].mjs": {
-      "maxDuration": 60
-    }
+    "api/[...path].mjs": { "maxDuration": 60 },
+    "api/gemini/connect.mjs": { "maxDuration": 60 },
+    "api/gemini/disconnect.mjs": { "maxDuration": 60 }
   }
 }

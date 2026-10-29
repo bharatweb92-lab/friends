@@ -31,6 +31,7 @@ export default function Home({ state, status, onChat, onCall, onNavigate }: Prop
         (state.conversations[a.id].at(-1)?.createdAt ?? 0),
     )
     .slice(0, 3);
+  const callsAvailable = status.deployment !== 'vercel';
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   return (
@@ -70,14 +71,19 @@ export default function Home({ state, status, onChat, onCall, onNavigate }: Prop
               Talk it out, show them your world, or catch up over a virtual chai. Your AI friends
               are one call away.
             </p>
-            <button className="hero-button" onClick={() => onCall(FRIENDS[0], 'video')}>
-              <Video size={17} />
-              Make a video call
+            <button
+              className="hero-button"
+              onClick={() => (callsAvailable ? onCall(FRIENDS[0], 'video') : onChat(FRIENDS[0].id))}
+            >
+              {callsAvailable ? <Video size={17} /> : <MessageCircle size={17} />}
+              {callsAvailable ? 'Make a video call' : 'Message Aarav'}
               <ArrowUpRight size={16} />
             </button>
             <span className="hero-footnote">
               <ShieldCheck size={12} />
-              Your camera is always in your control.
+              {callsAvailable
+                ? 'Your camera is always in your control.'
+                : 'Chat and photo sharing are available on this deployment.'}
             </span>
           </div>
           <div className="hero-portrait">
@@ -203,8 +209,12 @@ export default function Home({ state, status, onChat, onCall, onNavigate }: Prop
             </h2>
             <p>
               {status.geminiConnected
-                ? 'Natural chats, real-time voice, and a friend who can see what you choose to share.'
-                : 'Connect your Gemini API key to unlock natural chats and live voice and video calls.'}
+                ? callsAvailable
+                  ? 'Natural chats, real-time voice, and a friend who can see what you choose to share.'
+                  : 'Natural chats and photo sharing are connected. Live voice/video calls need the Yaari Node server.'
+                : callsAvailable
+                  ? 'Connect your Gemini API key to unlock natural chats and live voice and video calls.'
+                  : 'Connect your Gemini API key to unlock natural chats and photo sharing on this Vercel deployment.'}
             </p>
             <button className="text-button" onClick={() => onNavigate('settings')}>
               {status.geminiConnected ? (

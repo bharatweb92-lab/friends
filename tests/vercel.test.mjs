@@ -54,7 +54,11 @@ test('Vercel adapter reports chat-only hosting and keeps key sessions across ins
     return Response.json({ name: 'models/gemini-flash-latest' });
   };
   try {
-    const { default: handler } = await import('../api/[...path].mjs');
+    const { default: handler } = await import('../server/vercel.mjs');
+    const { default: connectRoute } = await import('../api/gemini/connect.mjs');
+    const { default: disconnectRoute } = await import('../api/gemini/disconnect.mjs');
+    assert.equal(connectRoute, handler);
+    assert.equal(disconnectRoute, handler);
     const one = await fixture(t, handler);
     const two = await fixture(t, handler);
     const status = await (await fetch(`${one}/api/status`)).json();
